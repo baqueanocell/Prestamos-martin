@@ -2,26 +2,27 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Configuración profesional
-st.set_page_config(page_title="Martin Moreno - Gestión", layout="wide", initial_sidebar_state="expanded")
+# Configuración de nivel profesional
+st.set_page_config(page_title="Martin Moreno - Gestión", layout="wide")
 
-# Estilo personalizado para que coincida con tu captura
+# Estilo personalizado (Dark Mode con acentos verdes)
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    h1 { color: #00ffcc; font-family: 'Courier New', Courier, monospace; }
+    .stApp { background-color: #0e1117; }
+    h1, h2, h3 { color: #00ffcc !important; }
+    .stSlider > div > div > div > div { background: #00ffcc; }
     </style>
     """, unsafe_allow_html=True)
 
-def calcular_calendario(monto, cuotas, fecha_inicio, frecuencia):
+def calcular_calendario(monto_total, cuotas, fecha_inicio, frecuencia):
     pagos = []
-    monto_cuota = monto / cuotas
+    monto_cuota = monto_total / cuotas
     fecha_actual = fecha_inicio
     for i in range(1, cuotas + 1):
         pagos.append({
-            "Cuota": i,
-            "Fecha": fecha_actual.strftime('%d/%m/%Y'),
-            "Monto": f"${round(monto_cuota, 2):,}"
+            "N°": i,
+            "Vencimiento": fecha_actual.strftime('%d/%m/%Y'),
+            "Cobro": f"${round(monto_cuota, 2):,}"
         })
         if frecuencia == "Diario": fecha_actual += timedelta(days=1)
         elif frecuencia == "Semanal": fecha_actual += timedelta(weeks=1)
@@ -35,60 +36,65 @@ def main():
     if 'db' not in st.session_state:
         st.session_state.db = []
 
-    # Sidebar: Registro de datos
+    # Sidebar: Configuración Financiera
     with st.sidebar:
-        st.header("➕ Nuevo Registro")
+        st.header("⚙️ Configurar Préstamo")
         with st.form("registro_form", clear_on_submit=True):
             cliente = st.text_input("Nombre del Cliente")
-            monto = st.number_input("Monto Total", min_value=0.0, step=1000.0)
-            cuotas = st.number_input("Cantidad de Cuotas", min_value=1, step=1)
-            frecuencia = st.selectbox("Frecuencia de Cobro", ["Diario", "Semanal", "Mensual"])
-            fecha = st.date_input("Fecha del Préstamo", datetime.now())
+            capital_base = st.number_input("Capital Prestado ($)", min_value=0.0, step=1000.0)
             
-            if st.form_submit_button("Guardar en Agenda"):
-                if cliente:
-                    plan = calcular_calendario(monto, cuotas, fecha, frecuencia)
+            # Selector de Interés solicitado (10% a 100%)
+            tasa_interes = st.slider("Porcentaje de Interés (%)", 10, 100, 20)
+            
+            cuotas = st.number_input("Cantidad de Cuotas", min_value=1, step=1)
+            frecuencia = st.selectbox("Ciclo de Cobro", ["Diario", "Semanal", "Mensual"])
+            fecha = st.date_input("Fecha Inicio", datetime.now())
+            
+            # Cálculo interno
+            monto_final = capital_base * (1 + (tasa_interes / 100))
+            
+            if st.form_submit_button("✅ Registrar en Agenda"):
+                if cliente and capital_base > 0:
+                    plan = calcular_calendario(monto_final, cuotas, fecha, frecuencia)
                     st.session_state.db.append({
-                        "id": len(st.session_state.db),
                         "cliente": cliente, 
                         "plan": plan, 
-                        "monto": monto,
-                        "notas": "" # Espacio para escribir datos extra
+                        "capital": capital_base,
+                        "tasa": tasa_interes,
+                        "total": monto_final,
+                        "notas": ""
                     })
                     st.rerun()
 
-    # Panel Principal: Visualización y Escritura
+    # Dashboard Principal
     if st.session_state.db:
-        # Buscador rápido
-        busqueda = st.text_input("🔍 Buscar cliente por nombre...")
-        
+        st.subheader("📋 Clientes Activos")
         for idx, item in enumerate(st.session_state.db):
-            if busqueda.lower() in item['cliente'].lower():
-                with st.expander(f"👤 CLIENTE: {item['cliente']} | Total: ${item['monto']:,}"):
-                    col1, col2 = st.columns([1, 1])
-                    
-                    with col1:
-                        st.subheader("📅 Cronograma de Pagos")
-                        st.table(pd.DataFrame(item['plan']))
-                    
-                    with col2:
-                        st.subheader("📝 Notas y Datos")
-                        # Aquí Martin puede escribir datos directamente
-                        nota_key = f"nota_{idx}"
-                        st.session_state.db[idx]['notas'] = st.text_area(
-                            "Escribe observaciones (ej: Dirección, teléfono, aval):",
-                            value=item['notas'],
-                            key=nota_key
-                        )
-                        if st.button("Guardar Nota", key=f"btn_{idx}"):
-                            st.success("Información actualizada.")
-
-        # Botón para borrar todo si es necesario
-        if st.sidebar.button("🗑️ Limpiar Agenda"):
+            with st.expander(f"👤 {item['cliente']} | Total a Cobrar: ${item['total']:,} ({item['tasa']}% Int.)"):
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    st.write(f"**Capital Inicial:** ${item['capital']:,}")
+                    st.write(f"**Interés Aplicado:** {item['tasa']}%")
+                    st.dataframe(pd.DataFrame(item['plan']), hide_index=True)
+                
+                with col2:
+                    st.subheader("📝 Ficha del Cliente")
+                    nota_key = f"nota_{idx}"
+                    st.session_state.db[idx]['notas'] = st.text_area(
+                        "Datos de contacto / Notas de cobro:",
+                        value=item['notas'],
+                        key=nota_key,
+                        height=150
+                    )
+                    if st.button("Guardar Cambios", key=f"btn_{idx}"):
+                        st.success("Nota guardada correctamente.")
+        
+        if st.sidebar.button("🗑️ Borrar toda la base"):
             st.session_state.db = []
             st.rerun()
     else:
-        st.info("No hay registros. Usa el panel de la izquierda para empezar.")
+        st.info("Utiliza el panel lateral para ingresar el primer préstamo de Martin.")
 
 if __name__ == "__main__":
     main()
