@@ -3,83 +3,69 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # Configuración de página
-st.set_page_config(page_title="Gestión de Préstamos Pro", layout="wide")
+st.set_page_config(page_title="Control de Préstamos Pro", layout="wide")
 
 def calcular_calendario(monto, cuotas, fecha_inicio, frecuencia):
     pagos = []
     monto_cuota = monto / cuotas
     fecha_actual = fecha_inicio
-    
     for i in range(1, cuotas + 1):
         pagos.append({
-            "N° Cuota": i,
-            "Fecha de Pago": fecha_actual,
-            "Monto": round(monto_cuota, 2),
-            "Estado": "Pendiente"
+            "Cuota": i,
+            "Fecha": fecha_actual.strftime('%Y-%m-%d'),
+            "Monto": round(monto_cuota, 2)
         })
-        if frecuencia == "Diario":
-            fecha_actual += timedelta(days=1)
-        elif frecuencia == "Semanal":
-            fecha_actual += timedelta(weeks=1)
-        else: # Mensual
-            fecha_actual += timedelta(days=30)
+        if frecuencia == "Diario": fecha_actual += timedelta(days=1)
+        elif frecuencia == "Semanal": fecha_actual += timedelta(weeks=1)
+        else: fecha_actual += timedelta(days=30)
     return pagos
 
 def main():
-    st.title("🏦 Sistema de Gestión de Préstamos - Dashboard")
-    st.markdown("---")
+    st.title("🏦 Dashboard de Préstamos - Streaming Interface")
+    
+    if 'db' not in st.session_state:
+        st.session_state.db = []
 
-    # Inicializar estado de la sesión para 10 clientes
-    if 'clientes' not in st.session_state:
-        st.session_state.clientes = []
-
-    # Sidebar para entrada de datos
+    # Panel de entrada
     with st.sidebar:
-        st.header("Registro de Nuevo Préstamo")
-        with st.form("form_prestamo"):
-            nombre = st.text_input("Nombre del Cliente")
-            monto = st.number_input("Monto del Préstamo", min_value=0.0, step=100.0)
-            cuotas = st.number_input("Cantidad de Cuotas", min_value=1, max_value=360, step=1)
-            fecha_prestamo = st.date_input("Fecha del Préstamo", datetime.now())
-            frecuencia = st.selectbox("Frecuencia de Pago", ["Diario", "Semanal", "Mensual"])
-            
-            submit = st.form_submit_button("Registrar Cliente")
-            
-            if submit and nombre:
-                if len(st.session_state.clientes) < 10:
-                    plan_pagos = calcular_calendario(monto, cuotas, fecha_prestamo, frecuencia)
-                    st.session_state.clientes.append({
-                        "Cliente": nombre,
-                        "Monto Total": monto,
-                        "Cuotas": cuotas,
-                        "Frecuencia": frecuencia,
-                        "Calendario": plan_pagos
-                    })
-                    st.success(f"Cliente {nombre} registrado.")
-                else:
-                    st.error("Límite de 10 clientes alcanzado para esta demo.")
+        st.header("⚙️ Configuración")
+        with st.form("registro"):
+            cliente = st.text_input("Nombre del Cliente")
+            monto = st.number_input("Capital", min_value=0.0)
+            cuotas = st.number_input("Cuotas", min_value=1)
+            frecuencia = st.selectbox("Ciclo", ["Diario", "Semanal", "Mensual"])
+            fecha = st.date_input("Fecha Inicio", datetime.now())
+            if st.form_submit_button("Añadir a Agenda"):
+                if cliente:
+                    plan = calcular_calendario(monto, cuotas, fecha, frecuencia)
+                    st.session_state.db.append({"cliente": cliente, "plan": plan, "monto": monto})
 
-    # Visualización Principal
-    if st.session_state.clientes:
-        # Resumen General
-        st.subheader("📋 Resumen de Cartera")
-        df_resumen = pd.DataFrame(st.session_state.clientes).drop(columns=['Calendario'])
-        st.table(df_resumen)
+    # Display de Datos
+    if st.session_state.db:
+        cols = st.columns(len(st.session_state.db) if len(st.session_state.db) < 4 else 3)
+        
+        for idx, item in enumerate(st.session_state.db):
+            with cols[idx % 3]:
+                with st.container(border=True):
+                    st.subheader(f"👤 {item['cliente']}")
+                    st.write(f"**Total:** ${item['monto']}")
+                    df_aux = pd.DataFrame(item['plan'])
+                    st.dataframe(df_aux, height=200, hide_index=True)
 
-        st.markdown("---")
+        # Botón de Respaldo (Backup CSV)
+        st.divider()
+        full_data = []
+        for c in st.session_state.db:
+            for p in c['plan']:
+                full_data.append({"Cliente": c['cliente'], **p})
         
-        # Detalle por Cliente (Agenda)
-        st.subheader("📅 Agenda de Cobros Detallada")
-        
-        for idx, c in enumerate(st.session_state.clientes):
-            with st.expander(f"Ver Cronograma: {c['Cliente']}"):
-                df_pagos = pd.DataFrame(c['Calendario'])
-                # Formatear fecha para visualización
-                df_pagos['Fecha de Pago'] = df_pagos['Fecha de Pago'].dt.strftime('%Y-%m-%d')
-                st.dataframe(df_pagos, use_container_width=True)
-                
+        df_export = pd.DataFrame(full_data)
+        csv = df_export.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Descargar Reporte Completo (CSV)", csv, "prestamos.csv", "text/csv")
     else:
-        st.info("No hay clientes registrados. Use el panel lateral para agregar datos.")
+        st.warning("Esperando ingreso de datos de clientes...")
 
 if __name__ == "__main__":
     main()
+
+
